@@ -1,7 +1,7 @@
 INVENTORY MANAGEMENT SYSTEM
 
 Project Structure
-inventory-api/
+python-ims/
 ├── app.py             
 ├── database.py         
 ├── external_api.py     
