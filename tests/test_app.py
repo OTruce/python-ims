@@ -1,7 +1,5 @@
 """
-tests/test_app.py
-
-Unit tests for the Inventory Management API.
+Unit tests for the IMS.
 
 We use Flask's built-in test client, which lets us call our routes
 directly in Python without actually starting a server.
@@ -26,11 +24,7 @@ import database
 
 @pytest.fixture
 def client():
-    """
-    Runs before every test. Gives us a fresh Flask test client and
-    resets the mock database to a known state, so tests don't
-    interfere with each other.
-    """
+    
     flask_app_module.app.config["TESTING"] = True
 
     # Reset the in-memory database before every test
@@ -164,4 +158,82 @@ def test_fetch_from_external_api_not_found(mock_fetch, client):
     mock_fetch.return_value = None  # simulate barcode not found
 
     response = client.get("/items/fetch/0000000000000")
+    assert response.status_code == 404
+
+
+# ---------- SEARCH BY NAME tests ----------
+
+@patch("app.external_api.fetch_product_by_name")
+def test_search_by_name_success(mock_search, client):
+    mock_search.return_value = [
+        {
+            "product_name": "Mock Oat Milk",
+            "brands": "MockBrand",
+            "barcode": "1111111111111",
+            "ingredients_text": "Oats, water",
+            "quantity": 0,
+            "price": 0.0,
+        }
+    ]
+
+    response = client.get("/items/search", query_string={"name": "oat milk"})
+    assert response.status_code == 200
+    results = response.get_json()
+    assert len(results) == 1
+    assert results[0]["product_name"] == "Mock Oat Milk"
+
+
+def test_search_by_name_missing_query_param(client):
+    response = client.get("/items/search")
+    assert response.status_code == 400
+
+
+@patch("app.external_api.fetch_product_by_name")
+def test_search_by_name_no_results(mock_search, client):
+    mock_search.return_value = []
+
+    response = client.get("/items/search", query_string={"name": "asdkjaskjd"})
+    assert response.status_code == 404
+
+
+# ---------- ENHANCE ITEM tests ----------
+
+@patch("app.external_api.fetch_enhancement_details")
+def test_enhance_item_success(mock_enhance, client):
+    mock_enhance.return_value = {
+        "ingredients_text": "Almonds, water, sea salt",
+        "categories": "Plant-based beverages",
+        "nutrition_grade": "b",
+        "image_url": "https://example.com/image.jpg",
+    }
+
+    response = client.patch("/items/1/enhance")
+    assert response.status_code == 200
+
+    data = response.get_json()
+    assert data["categories"] == "Plant-based beverages"
+    assert data["nutrition_grade"] == "b"
+    # original fields should still be there, untouched
+    assert data["product_name"] == "Organic Almond Milk"
+
+
+def test_enhance_item_not_found(client):
+    response = client.patch("/items/999/enhance")
+    assert response.status_code == 404
+
+
+def test_enhance_item_no_barcode(client):
+    # add an item with no barcode, then try to enhance it
+    create_response = client.post("/items", json={"product_name": "No Barcode Item"})
+    new_id = create_response.get_json()["id"]
+
+    response = client.patch(f"/items/{new_id}/enhance")
+    assert response.status_code == 400
+
+
+@patch("app.external_api.fetch_enhancement_details")
+def test_enhance_item_barcode_not_on_openfoodfacts(mock_enhance, client):
+    mock_enhance.return_value = None  # simulate barcode not found upstream
+
+    response = client.patch("/items/1/enhance")
     assert response.status_code == 404
